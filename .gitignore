@@ -1,0 +1,7 @@
+*.img
+*.xz
+*.gz
+sdcard
+arch
+*.bin
+*-no-swap*
