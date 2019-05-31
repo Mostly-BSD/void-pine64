@@ -5,7 +5,7 @@ set -x # Echo each command
 
 # Change to match latest values
 ARCH_IMAGE_VERSION="20190112"
-VOID_LOCAL_ROOTFS_VERSION="20190215"
+VOID_LOCAL_ROOTFS_VERSION="20190530"
 VOID_REMOTE_ROOTFS_VERSION="20181111"
 
 # Use anarsoul's Arch Linux image to extract kernel + uboot
