@@ -1,3 +1,4 @@
+install-sw.sh
 *.img
 *.xz
 *.gz
@@ -5,3 +6,4 @@ sdcard
 arch
 *.bin
 *-no-swap*
+*.code-workspace

@@ -18,10 +18,9 @@ case "$PINE64_BOARD" in
     ;;
 esac
 
-# Change to match latest values
-VOID_PINE64_PLATFORMFS_VERSION="20190607"
+# Default PlatformFS ver. is 20190905
+VOID_PINE64_PLATFORMFS_VERSION="${2:-20190905}"
 
-# Use locally built Platform/Root FS if available else fallback to void supplied Root FS.
 VOID_PINE64_PLATFORMFS_FILE="void-pine64${MUSL}-PLATFORMFS-${VOID_PINE64_PLATFORMFS_VERSION}.tar.xz"
 
 if [ ! -r "$VOID_PINE64_PLATFORMFS_FILE" ]; then
@@ -122,11 +121,26 @@ ROOTFS_UUID=$(blkid --output=udev /dev/loop0p3 |grep _UUID= |cut -d= -f2)
 echo 'UUID='${ROOTFS_UUID}'	/	ext4	defaults,rw,noatime	0	1' >> sdcard/root/etc/fstab
 
 # Start some services by default
-[[ -L "sdcard/root/etc/runit/runsvdir/default/sshd" ]] || ln -s /etc/sv/sshd sdcard/root/etc/runit/runsvdir/default/
-[[ -L "sdcard/root/etc/runit/runsvdir/default/ntpd" ]] || ln -s /etc/sv/ntpd sdcard/root/etc/runit/runsvdir/default/
-[[ -L "sdcard/root/etc/runit/runsvdir/default/dhcpcd" ]] || ln -s /etc/sv/dhcpcd sdcard/root/etc/runit/runsvdir/default/
-[[ -L "sdcard/root/etc/runit/runsvdir/default/agetty-ttyS0" ]] || ln -s /etc/sv/agetty-ttyS0 sdcard/root/etc/runit/runsvdir/default/
+[[ -L "sdcard/root/etc/runit/runsvdir/default/sshd" ]] || \
+  ln -s /etc/sv/sshd sdcard/root/etc/runit/runsvdir/default/
 
+[[ -L "sdcard/root/etc/runit/runsvdir/default/ntpd" ]] || \
+  ln -s /etc/sv/ntpd sdcard/root/etc/runit/runsvdir/default/
+
+[[ -L "sdcard/root/etc/runit/runsvdir/default/dhcpcd" ]] || \
+  ln -s /etc/sv/dhcpcd sdcard/root/etc/runit/runsvdir/default/
+
+[[ -L "sdcard/root/etc/runit/runsvdir/default/agetty-ttyS0" ]] || \
+  ln -s /etc/sv/agetty-ttyS0 sdcard/root/etc/runit/runsvdir/default/
+
+# Stop unneeded tty services
+touch sdcard/root/etc/sv/agetty-tty{2,3,4,5,6}/down
+
+VOID_ARCH_REPO=${VOID_ARCH_REPO:-/opt/void/void-packages/hostdir/binpkgs/pine64}
+if [ -d "${VOID_ARCH_REPO}" ]; then
+  cp -a ${VOID_ARCH_REPO} sdcard/root/opt/pine64-repo
+  chown root:root sdcard/root/opt/pine64-repo
+fi
 
 # u-boot 
 dd if=sdcard/root/boot/$BOOTLOADER of=/dev/loop0 bs=8k seek=1
@@ -136,8 +150,13 @@ sleep 2
 sync
 sleep 2
 
+# Some finishing touches
+cp post-image-pico.sh /tmp/.
+chmod +x /tmp/post-image-pico.sh
+PROOT_NO_SECCOMP=1 TERM=xterm-256color proot -q qemu-aarch64-static -S ./sdcard/root /tmp/post-image-pico.sh
+rm -f /tmp/post-image-pico.sh
+
 # Tear Down
 umount sdcard/root
-#umount sdcard/boot
 rm -rf sdcard
 losetup -d /dev/loop0
