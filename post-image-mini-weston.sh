@@ -10,10 +10,10 @@ if [ ! "$ARCH" == "aarch64" ];then
 fi
 
 xbps-install -S
-xbps-install -y --repository=/opt/pine64 \
+xbps-install -y \
   xorg-minimal xorg-fonts xorg-apps xterm \
 	xlsfonts rxvt-unicode xf86-video-fbdev mesa-demos \
-  weston xorg-server-xwayland grim wl-clipboard imv wayland-protocols
+  weston weston-xwayland xorg-server-xwayland grim wl-clipboard imv wayland-protocols
 
 mkdir -p /etc/X11
 

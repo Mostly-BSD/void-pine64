@@ -15,7 +15,10 @@ losetup -P /dev/loop0 $IMAGE_NAME
 mkdir -p sdcard/root
 mount  /dev/loop0p3 ./sdcard/root
 
-PROOT_NO_SECCOMP=1 TERM=xterm-256color proot -q qemu-aarch64-static -b ./files:/opt/files -b ../../void-linux/void-packages/hostdir/binpkgs/pine64:/opt/pine64 -S ./sdcard/root /bin/bash
+PROOT_NO_SECCOMP=1 TERM=xterm-256color proot -q qemu-aarch64-static \
+	-b ./files:/opt/files \
+	-b ../../void-linux/void-packages/hostdir/binpkgs/pine64:/opt/pine64 \
+	-S ./sdcard/root /bin/bash 
 
 # Tear Down
 umount sdcard/root

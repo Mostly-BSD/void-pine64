@@ -1,62 +1,27 @@
 #!/usr/bin/env bash
 
 set -e # Exit on first error
-set -x # Echo each command
+#set -x # Echo each command
 
-PINE64_BOARD=${1:-A64}
-case "$PINE64_BOARD" in
-  A64|sopine|pinebook|H64|A64-lts)
-    :
-    ;;
-  A64-musl|sopine-musl|pinebook-musl|H64-musl|A64-lts-musl)
-    PINE64_BOARD="${PINE64_BOARD%-musl}"
-    MUSL="-musl"
-    ;;
-  *)
-    echo "ERROR: Board '$PINE64_BOARD' not supported!"
-    exit 255
-    ;;
-esac
 
-# Default PlatformFS ver. is 20190905
-VOID_PINE64_PLATFORMFS_VERSION="${2:-20190905}"
+VOID_PINE64_PLATFORMFS_FILE="${1}"
 
-VOID_PINE64_PLATFORMFS_FILE="void-pine64${MUSL}-PLATFORMFS-${VOID_PINE64_PLATFORMFS_VERSION}.tar.xz"
-
-if [ ! -r "$VOID_PINE64_PLATFORMFS_FILE" ]; then
+if [ -z "$VOID_PINE64_PLATFORMFS_FILE" -o ! -r "$VOID_PINE64_PLATFORMFS_FILE" ]; then
   echo "ERROR: Platform FS '$VOID_PINE64_PLATFORMFS_FILE' not found!"
   exit 255
 fi
 
-# This will be our void image 
-IMAGE_NAME="void-pine64${MUSL}-${PINE64_BOARD}-${VOID_PINE64_PLATFORMFS_VERSION}.img"
+# PlatformFS Version
+VOID_PINE64_PLATFORMFS_VERSION="$(echo $VOID_PINE64_PLATFORMFS_FILE | egrep -o '[0-9]{8}')"
+MUSL="$(echo $VOID_PINE64_PLATFORMFS_FILE | egrep -o '\-musl')"
 
-case "$PINE64_BOARD" in
-  A64)
-    BOOTLOADER="u-boot-sunxi-with-spl-pine64.bin"
-    ;;
-  sopine)
-    BOOTLOADER="u-boot-sunxi-with-spl-sopine.bin"
-    ;;
-  pinebook)
-    BOOTLOADER="u-boot-sunxi-with-spl-pinebook.bin"
-    ;;
-  H64)
-    BOOTLOADER="u-boot-sunxi-with-spl-pine-h64.bin"
-    ;;
-  A64-lts)
-    BOOTLOADER="u-boot-sunxi-with-spl-pine64-lts.bin"
-    ;;
-esac
+# This will be our void image 
+IMAGE_NAME="void-pine64${MUSL}-${VOID_PINE64_PLATFORMFS_VERSION}.img"
 
 IMAGE_SIZE=4096M # 4 GB
 PART_POSITION=20480 # K
 FAT_SIZE=100 #M
 SWAP_SIZE=1024 # M
-
-umount /dev/loop0p3 >&/dev/null || :
-losetup -d /dev/loop0 >&/dev/null || :
-
 
 rm -f $IMAGE_NAME
 fallocate -l $IMAGE_SIZE $IMAGE_NAME
@@ -98,29 +63,34 @@ EOF
 sleep 2
 
 # Use /dev/loop henceforth
-losetup -P /dev/loop0 $IMAGE_NAME
+LOOP_DEVICE=`losetup -f`
+echo "Using $LOOP_DEVICE as a loop device"
+losetup -P ${LOOP_DEVICE} $IMAGE_NAME
 sleep 2
-mkfs.vfat /dev/loop0p1
+mkfs.vfat ${LOOP_DEVICE}p1
 sleep 2
-mkswap /dev/loop0p2
+mkswap ${LOOP_DEVICE}p2
 sleep 2
-mkfs.ext4 -L rootfs /dev/loop0p3
+mkfs.ext4 -L rootfs ${LOOP_DEVICE}p3
 sleep 2
 
 # Extract ROOTFS
+echo "Extracting RootFS"
 mkdir -p sdcard/root
-mount  /dev/loop0p3 ./sdcard/root
+mount  ${LOOP_DEVICE}p3 ./sdcard/root
 # Extract void ROOTFS
 tar -C sdcard/root -Jpxf ${VOID_PINE64_PLATFORMFS_FILE}
 sleep 2
 
 # Setup /etc/fstab
-SWAP_UUID=$(blkid --output=udev /dev/loop0p2 |grep _UUID= |cut -d= -f2)
+echo "Setting up /etc/fstab"
+SWAP_UUID=$(blkid --output=udev ${LOOP_DEVICE}p2 |grep _UUID= |cut -d= -f2)
 echo 'UUID='${SWAP_UUID}'	swap	swap	defaults	0	0' >> sdcard/root/etc/fstab
-ROOTFS_UUID=$(blkid --output=udev /dev/loop0p3 |grep _UUID= |cut -d= -f2)
+ROOTFS_UUID=$(blkid --output=udev ${LOOP_DEVICE}p3 |grep _UUID= |cut -d= -f2)
 echo 'UUID='${ROOTFS_UUID}'	/	ext4	defaults,rw,noatime	0	1' >> sdcard/root/etc/fstab
 
 # Start some services by default
+echo "Setting up sshd, ntpd, dhcpcd, and agetty-ttys0 to start on boot"
 [[ -L "sdcard/root/etc/runit/runsvdir/default/sshd" ]] || \
   ln -s /etc/sv/sshd sdcard/root/etc/runit/runsvdir/default/
 
@@ -136,14 +106,12 @@ echo 'UUID='${ROOTFS_UUID}'	/	ext4	defaults,rw,noatime	0	1' >> sdcard/root/etc/f
 # Stop unneeded tty services
 touch sdcard/root/etc/sv/agetty-tty{2,3,4,5,6}/down
 
-VOID_ARCH_REPO=${VOID_ARCH_REPO:-/opt/void/void-packages/hostdir/binpkgs/pine64}
+echo "Copying pine64 packages to the image"
+VOID_ARCH_REPO=${VOID_ARCH_REPO:-/opt/github_repos/void-linux/void-packages/hostdir/binpkgs/pine64}
 if [ -d "${VOID_ARCH_REPO}" ]; then
   cp -a ${VOID_ARCH_REPO} sdcard/root/opt/pine64-repo
   chown root:root sdcard/root/opt/pine64-repo
 fi
-
-# u-boot 
-dd if=sdcard/root/boot/$BOOTLOADER of=/dev/loop0 bs=8k seek=1
 
 # Just to be sure
 sleep 2
@@ -151,12 +119,17 @@ sync
 sleep 2
 
 # Some finishing touches
+echo "Executing post install script"
+rm -f ./sdcard/root/boot/initramfs*
 cp post-image-pico.sh /tmp/.
 chmod +x /tmp/post-image-pico.sh
 PROOT_NO_SECCOMP=1 TERM=xterm-256color proot -q qemu-aarch64-static -S ./sdcard/root /tmp/post-image-pico.sh
 rm -f /tmp/post-image-pico.sh
 
 # Tear Down
+echo "Remove temp folders/files/mounts"
 umount sdcard/root
 rm -rf sdcard
-losetup -d /dev/loop0
+losetup -d ${LOOP_DEVICE}
+
+echo "All Done!"
